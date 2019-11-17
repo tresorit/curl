@@ -388,6 +388,9 @@ curl_multi_strerror(CURLMcode error)
   case CURLM_RECURSIVE_API_CALL:
     return "API function called from within callback";
 
+  case CURLM_UNBLOCK_FAILURE:
+    return "curl_multi_unblock() is unavailable or failed";
+
   case CURLM_LAST:
     break;
   }

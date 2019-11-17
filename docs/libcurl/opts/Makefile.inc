@@ -67,6 +67,7 @@ man_MANS =                                      \
   CURLINFO_TOTAL_TIME_T.3                       \
   CURLMOPT_CHUNK_LENGTH_PENALTY_SIZE.3          \
   CURLMOPT_CONTENT_LENGTH_PENALTY_SIZE.3        \
+  CURLMOPT_ENABLE_UNBLOCK.3                     \
   CURLMOPT_MAXCONNECTS.3                        \
   CURLMOPT_MAX_CONCURRENT_STREAMS.3             \
   CURLMOPT_MAX_HOST_CONNECTIONS.3               \

@@ -1804,7 +1804,11 @@
      d                 c                   6
      d  CURLM_ADDED_ALREADY...
      d                 c                   7
-     d  CURLM_LAST     c                   8
+     d  CURLM_RECURSIVE_API_CALL...
+     d                 c                   8
+     d  CURLM_UNBLOCK_FAILURE...
+     d                 c                   9
+     d  CURLM_LAST     c                   10
       *
      d CURLMSG         s             10i 0 based(######ptr######)               Enum
      d  CURLMSG_NONE   c                   0
@@ -1843,6 +1847,8 @@
      d                 c                   10015
      d  CURLMOPT_MAX_CONCURRENT_STREAMS...
      d                 c                   10016
+     d  CURLMOPT_ENABLE_UNBLOCK...
+     d                 c                   10017
       *
       * Bitmask bits for CURLMOPT_PIPELING.
       *

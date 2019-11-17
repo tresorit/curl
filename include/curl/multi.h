@@ -72,6 +72,7 @@ typedef enum {
                             attempted to get added - again */
   CURLM_RECURSIVE_API_CALL, /* an api function was called from inside a
                                callback */
+  CURLM_UNBLOCK_FAILURE, /* curl_multi_unblock() is unavailable or failed */
   CURLM_LAST
 } CURLMcode;
 
@@ -186,6 +187,15 @@ CURL_EXTERN CURLMcode curl_multi_poll(CURLM *multi_handle,
                                       unsigned int extra_nfds,
                                       int timeout_ms,
                                       int *ret);
+
+/*
+ * Name:     curl_multi_unblock()
+ *
+ * Desc:     unblocks a "hanging" curl_multi_wait/poll call.
+ *
+ * Returns:  CURLMcode type, general multi error code.
+ */
+CURL_EXTERN CURLMcode curl_multi_unblock(CURLM *multi_handle);
 
  /*
   * Name:    curl_multi_perform()
@@ -398,6 +408,9 @@ typedef enum {
 
   /* maximum number of concurrent streams to support on a connection */
   CINIT(MAX_CONCURRENT_STREAMS, LONG, 16),
+
+  /* enable curl_multi_unblock() */
+  CINIT(ENABLE_UNBLOCK, LONG, 17),
 
   CURLMOPT_LASTENTRY /* the last unused */
 } CURLMoption;

@@ -24,6 +24,7 @@
 
 #include "conncache.h"
 #include "psl.h"
+#include "socketpair.h"
 
 struct Curl_message {
   struct curl_llist_element list;
@@ -134,6 +135,13 @@ struct Curl_multi {
                                     previous callback */
   bool in_callback;            /* true while executing a callback */
   long max_concurrent_streams; /* max concurrent streams client to support */
+
+#ifdef USE_SOCKETPAIR
+  curl_socket_t unblock_read_socket; /* reader half of the socketpair()
+                                        used for unblock */
+  curl_socket_t unblock_write_socket; /* writer half of the socketpair()
+                                        used for unblock */
+#endif
 };
 
 #endif /* HEADER_CURL_MULTIHANDLE_H */

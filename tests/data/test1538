@@ -138,7 +138,8 @@ m5: Invalid socket argument
 m6: Unknown option
 m7: The easy handle is already added to a multi handle
 m8: API function called from within callback
-m9: Unknown error
+m9: curl_multi_unblock() is unavailable or failed
+m10: Unknown error
 s0: No error
 s1: Unknown share option
 s2: Share currently in use

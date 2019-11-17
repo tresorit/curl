@@ -46,6 +46,7 @@
 #include "connect.h"
 #include "http_proxy.h"
 #include "http2.h"
+#include "socketpair.h"
 /* The last 3 #include files should be in this order */
 #include "curl_printf.h"
 #include "curl_memory.h"
@@ -367,6 +368,12 @@ struct Curl_multi *Curl_multi_handle(int hashsize, /* socket hash */
 
   /* -1 means it not set by user, use the default value */
   multi->maxconnects = -1;
+
+#ifdef USE_SOCKETPAIR
+  multi->unblock_read_socket = CURL_SOCKET_BAD;
+  multi->unblock_write_socket = CURL_SOCKET_BAD;
+#endif
+
   return multi;
 
   error:
@@ -1059,6 +1066,12 @@ static CURLMcode Curl_multi_wait(struct Curl_multi *multi,
   curlfds = nfds; /* number of internal file descriptors */
   nfds += extra_nfds; /* add the externally provided ones */
 
+#ifdef USE_SOCKETPAIR
+  if(multi->unblock_read_socket != CURL_SOCKET_BAD) {
+    ++nfds;
+  }
+#endif
+
   if(nfds > NUM_POLLS_ON_STACK) {
     /* 'nfds' is a 32 bit value and 'struct pollfd' is typically 8 bytes
        big, so at 2^29 sockets this value might wrap. When a process gets
@@ -1117,6 +1130,14 @@ static CURLMcode Curl_multi_wait(struct Curl_multi *multi,
     ++nfds;
   }
 
+#ifdef USE_SOCKETPAIR
+  if(multi->unblock_read_socket != CURL_SOCKET_BAD) {
+    ufds[nfds].fd = multi->unblock_read_socket;
+    ufds[nfds].events = POLLIN;
+    ++nfds;
+  }
+#endif
+
   if(nfds) {
     int pollrc;
     /* wait... */
@@ -1140,6 +1161,24 @@ static CURLMcode Curl_multi_wait(struct Curl_multi *multi,
 
         extra_fds[i].revents = mask;
       }
+
+#ifdef USE_SOCKETPAIR
+      if(multi->unblock_read_socket != CURL_SOCKET_BAD) {
+        if(ufds[curlfds + extra_nfds].revents & POLLIN) {
+          char buf[64];
+          while(1) {
+            /* the reading socket is blocking, so we only handle EINTR */
+            if(sread(multi->unblock_read_socket, buf, sizeof(buf)) < 0) {
+#ifndef USE_WINSOCK
+              if(EINTR == SOCKERRNO)
+                continue;
+#endif
+            }
+            break;
+          }
+        }
+      }
+#endif
     }
   }
 
@@ -1184,6 +1223,53 @@ CURLMcode curl_multi_poll(struct Curl_multi *multi,
                           int *ret)
 {
   return Curl_multi_wait(multi, extra_fds, extra_nfds, timeout_ms, ret, TRUE);
+}
+
+CURLMcode curl_multi_unblock(struct Curl_multi *multi)
+{
+  /* this function is usually called from another thread,
+     it has to be careful only to access parts of the
+     Curl_multi struct that are constant */
+
+  /* GOOD_MULTI_HANDLE can be safely called */
+  if(!GOOD_MULTI_HANDLE(multi))
+    return CURLM_BAD_HANDLE;
+
+#ifdef USE_SOCKETPAIR
+  /* unblock_write_socket is only written during init+setopt and cleanup,
+     making it safe to access from another thread after the init+setopt
+     part and before cleanup */
+  if(multi->unblock_write_socket != CURL_SOCKET_BAD) {
+    char buf[1];
+    buf[0] = 1;
+    while(1) {
+      /* swrite() is not thread-safe in general, because concurrent calls
+         can have their messages interleaved, but in this case the content
+         of the messages does not matter, which makes it ok to call.
+
+         The write socket is set to non-blocking, this way this function
+         cannot block, making it safe to call even from the same thread
+         that will call Curl_multi_wait(). If swrite() returns that it
+         would block, it's considered successful because it means that
+         previous calls to this function will unblock the poll(). */
+      if(swrite(multi->unblock_write_socket, buf, sizeof(buf)) < 0) {
+        int err = SOCKERRNO;
+        int return_success;
+#ifdef USE_WINSOCK
+        return_success = WSAEWOULDBLOCK == err;
+#else
+        if(EINTR == err)
+          continue;
+        return_success = EWOULDBLOCK == err || EAGAIN == err;
+#endif
+        if(!return_success)
+          return CURLM_UNBLOCK_FAILURE;
+      }
+      return CURLM_OK;
+    }
+  }
+#endif
+  return CURLM_UNBLOCK_FAILURE;
 }
 
 /*
@@ -2309,6 +2395,11 @@ CURLMcode curl_multi_cleanup(struct Curl_multi *multi)
 
     Curl_hash_destroy(&multi->hostcache);
     Curl_psl_destroy(&multi->psl);
+
+#ifdef USE_SOCKETPAIR
+    sclose(multi->unblock_read_socket);
+    sclose(multi->unblock_write_socket);
+#endif
     free(multi);
 
     return CURLM_OK;
@@ -2785,6 +2876,33 @@ CURLMcode curl_multi_setopt(struct Curl_multi *multi,
           (streams > (long)INITIAL_MAX_CONCURRENT_STREAMS)?
           (long)INITIAL_MAX_CONCURRENT_STREAMS : streams;
     }
+    break;
+  case CURLMOPT_ENABLE_UNBLOCK:
+#if defined(USE_SOCKETPAIR) && !defined(USE_BLOCKING_SOCKETS)
+    {
+      long enable = va_arg(param, long);
+      if(enable == 0) {
+        sclose(multi->unblock_read_socket);
+        multi->unblock_read_socket = CURL_SOCKET_BAD;
+        sclose(multi->unblock_write_socket);
+        multi->unblock_write_socket = CURL_SOCKET_BAD;
+      }
+      else if(multi->unblock_read_socket == CURL_SOCKET_BAD) {
+          curl_socket_t sock_pair[2];
+          if(Curl_socketpair(AF_UNIX, SOCK_STREAM, 0, &sock_pair[0]) < 0)
+            res = CURLM_UNBLOCK_FAILURE;
+          /* make the write socket non-blocking */
+          else if(curlx_nonblock(sock_pair[1], TRUE) < 0)
+            res = CURLM_UNBLOCK_FAILURE;
+          else {
+            multi->unblock_read_socket = sock_pair[0];
+            multi->unblock_write_socket = sock_pair[1];
+          }
+      }
+    }
+#else
+    res = CURLM_UNBLOCK_FAILURE;
+#endif
     break;
   default:
     res = CURLM_UNKNOWN_OPTION;
